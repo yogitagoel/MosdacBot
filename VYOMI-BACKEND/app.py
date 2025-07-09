@@ -8,6 +8,39 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from fuzzywuzzy import fuzz
 import re
+import requests
+from bs4 import BeautifulSoup
+
+def is_text_page(url):
+    return url.endswith('.html') or any(keyword in url.lower() for keyword in ['intro', 'description', 'about', 'summary'])
+
+def extract_clean_text(url):
+    try:
+        response = requests.get(url, timeout=10)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        for tag in soup(['script', 'style', 'header', 'footer', 'nav']):
+            tag.decompose()
+        paragraphs = [p.get_text(strip=True) for p in soup.find_all('p')]
+        text = ' '.join(paragraphs)
+        return text if len(text) > 50 else None 
+    except Exception as e:
+        return None
+
+def summarize_or_answer(text, query):
+    prompt = f"""
+    You are a helpful assistant. Based on the following webpage content, provide a detailed answer to the user's question.
+
+    Webpage Content:
+        {text[:6000]}
+
+    User Question:
+        {query}
+
+    Please explain clearly using facts from the page, and if applicable, include dates, technical details, or names.
+    """
+    response = model.generate_content([{"role": "user", "parts": [prompt]}])
+    return response.text.strip()
+
 
 def render_doc_links(text, kg):
     # Find all URLs in the text
@@ -25,6 +58,7 @@ def render_doc_links(text, kg):
                 url,
                 f'<a href="{url}" target="_blank" style="color:#00bcd4;text-decoration:underline;font-weight:500;">{filename}</a> <span style="font-size:0.95em;color:#444;">({preview})</span>'
             )
+            
     return text
 
 # Load API key from .env
@@ -146,23 +180,47 @@ if user_input:
     with st.chat_message("assistant"):
         with st.spinner("Vyomi is thinking..."):
             try:
+                answer_given = False
+                for edge in kg_context:
+                    if edge['relation'] == 'has_document':
+                        doc_url = edge['target']
+                        if is_text_page(doc_url):
+                            raw_text = extract_clean_text(doc_url)
+                            if raw_text:
+                                with st.chat_message("assistant"):
+                                    with st.spinner("Vyomi is analyzing the page..."):
+                                        try:
+                                            reply = summarize_or_answer(raw_text, user_input)
+                                            reply += f"\n\n📄 [View Source]({doc_url})"
+                                            st.markdown(reply)
+                                            st.session_state.chat_history.append({"role": "assistant", "content": reply})
+                                            answer_given = True
+                                        except Exception as e:
+                                            st.error(f"Error summarizing document: {e}")
+                                break 
                 # Build conversation context with KG context
-                context_prompt = SIA_PROMPT
-                if context_str:
-                    context_prompt += f"\n\nRelevant context from knowledge graph:\n{context_str}"
-                parts = [{"role": "user", "parts": [context_prompt]}] + [
-                    {"role": msg["role"], "parts": [msg["content"]]}
-                    for msg in st.session_state.chat_history
-                ]
+                if not answer_given:
+                    with st.chat_message("assistant"):
+                        with st.spinner("Vyomi is thinking..."):
+                            try:
+                                context_prompt = SIA_PROMPT
+                                if context_str:
+                                    context_prompt += f"\n\nRelevant context from knowledge graph:\n{context_str}"
+                                parts = [{"role": "user", "parts": [context_prompt]}] + [
+                                        {"role": msg["role"], "parts": [msg["content"]]}
+                                        for msg in st.session_state.chat_history
+                                ]
 
-                response = model.generate_content(contents=parts)
-                reply = response.text
+                                response = model.generate_content(contents=parts)
+                                reply = response.text
+                            except Exception as e:
+                                reply = f"❌ Error: {str(e)}"
+                            # Render document links in the reply
+                            st.markdown(render_doc_links(reply, kg), unsafe_allow_html=True)
+
+                            st.session_state.chat_history.append({"role": "assistant", "content": reply})
             except Exception as e:
-                reply = f"❌ Error: {str(e)}"
-            # Render document links in the reply
-            st.markdown(render_doc_links(reply, kg), unsafe_allow_html=True)
-
-    st.session_state.chat_history.append({"role": "assistant", "content": reply})
+                st.error(f"Error during assistant response: {e}")
 
 # Sidebar controls
 with st.sidebar:
