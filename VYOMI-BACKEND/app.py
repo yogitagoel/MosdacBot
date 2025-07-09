@@ -11,7 +11,6 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
-
 def is_text_page(url):
     return url.endswith('.html') or any(keyword in url.lower() for keyword in ['intro', 'description', 'about', 'summary'])
 
@@ -67,8 +66,7 @@ load_dotenv()
 genai.configure(api_key="")
 
 # Load knowledge graph
-file_path = os.path.join(os.path.dirname(__file__), 'knowledge_graph.json')
-with open(file_path, 'r', encoding='utf-8') as f:
+with open('knowledge_graph.json', 'r', encoding='utf-8') as f:
     kg = json.load(f)
 
 # Load spaCy for simple keyword/entity extraction
