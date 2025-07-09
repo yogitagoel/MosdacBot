@@ -1,0 +1,9 @@
+streamlit
+google-generativeai
+sentence-transformers
+numpy
+spacy
+fuzzywuzzy
+python-dotenv
+beautifulsoup4
+requests
