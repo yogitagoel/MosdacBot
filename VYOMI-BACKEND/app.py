@@ -27,8 +27,17 @@ def extract_clean_text(url):
         return None
 
 def summarize_or_answer(text, query):
+    history_str = ""
+    for msg in st.session_state.chat_history:
+        if msg["role"] == "user":
+            history_str += f"\nUser: {msg['content']}"
+        elif msg["role"] == "assistant":
+            history_str += f"\nAssistant: {msg['content']}"
     prompt = f"""
+    You are Vyomi, an AI assistant designed to help users—especially with queries about the MOSDAC website and ISRO missions. The user may ask general or specific questions. Always provide clear, detailed, helpful answers, and include relevant links if applicable.
 
+    Conversation so far:
+        {history_str}
 
     Webpage Content:
         {text}
@@ -40,7 +49,9 @@ def summarize_or_answer(text, query):
     do not give just one line answers.give all the details about the mission if asked or the query that the user is asking.also add the useful links and dont forget them.
     Please explain clearly using facts from the page, and if applicable, include dates, technical details, or names.
     """
-    response = model.generate_content([{"role": "user", "parts": [prompt]}])
+
+    chat = st.session_state.chat
+    response = chat.send_message(prompt)
     return response.text
 
 
@@ -141,6 +152,8 @@ logo_svg = '''<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000
 # Gemini model instance
 MODEL_NAME = "models/gemini-2.0-flash-001"
 model = genai.GenerativeModel(MODEL_NAME)
+if "chat" not in st.session_state:
+    st.session_state.chat = model.start_chat(history=[])
 
 st.set_page_config(page_title="Vyomi - India's Space Knowledge AI", layout="centered")
 st.markdown(f'''<div class="vyomi-logo">{logo_svg}<span class="vyomi-title">Vyomi</span></div>''', unsafe_allow_html=True)
@@ -211,7 +224,7 @@ if user_input:
                                     for msg in st.session_state.chat_history
                             ]
 
-                            response = model.generate_content(contents=parts)
+                            response = st.session_state.chat.send_message(user_input)
                             reply = response.text
                         except Exception as e:
                             reply = f"❌ Error: {str(e)}"
